@@ -1,0 +1,90 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+
+### Loading packages
+```{r, warning=FALSE, message=FALSE}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(randomForest)
+library(e1071)
+```
+
+### Downloading and importing data
+```{r}
+trainurl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testurl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainfn <- "./data/pml-training.csv"
+testfn  <- "./data/pml-testing.csv"
+download.file(trainurl, destfile=trainfn, method="curl")
+download.file(testurl, destfile=testfn, method="curl")
+trainDF <- read.csv(trainfn, na.strings=c("NA","#DIV/0!", ""))
+testDF <- read.csv(testfn, na.strings=c("NA","#DIV/0!", "")) #validation
+```
+
+### Cleaning data
+There is a large quantity of empty elements and irrelevant columns.  They are discarded with this process.  
+```{r}
+trainDF1 <-trainDF[, colSums(is.na(trainDF)) == 0]
+testDF1 <-testDF[, colSums(is.na(testDF)) == 0]
+
+removeIdx <- grep("timestamp|^X|window", names(trainDF1))
+trainDF2 <- trainDF1[,-c(1, removeIdx )]
+testDF2 <- testDF1[,-c(1, removeIdx)]
+```
+
+### Partitioning data for cross-validation
+Partitioning the data with 70% in the training set for cross-validation
+```{r}
+classe <- trainDF2$classe
+inTrain <- createDataPartition(trainDF2$classe, p=0.7, list=FALSE)
+train <- trainDF2[inTrain, ]
+test <- trainDF2[-inTrain, ]
+```
+### Exploring data
+The final number of rows and columns for the training and testing sets.  The dataset is highly dimensional with 54 fields.
+```{r}
+dim(train)
+dim(test)
+```
+Looking at correlations:
+```{r}
+library(corrplot)
+nn <- c(1,ncol(trainDF2)) # excluding name and classe
+corrMat <- cor(trainDF2[, -nn])
+corr <- findCorrelation(corrMat)
+corrplot(corrMat, 
+         method="color",
+         type="lower",
+         order="hclust",
+         tl.srt = 45,
+         diag = FALSE,
+         tl.col = 'black')
+```
+### Modeling
+
+Starting with a Decision Tree model to assist with model interpretability
+```{r}
+set.seed(123)
+modDT <- rpart(classe ~ ., data=train, method="class")
+prp(modDT)
+
+predictDT <- predict(modDT,test,type='class')
+cmtree<- confusionMatrix(predictDT, as.factor(test$classe))
+cmtree
+```
+
+Modeling with Random Forest for improved accuracy performance.
+```{r}
+controlRF <- trainControl(method="cv", 5)
+modelRF <- train(classe ~ ., data=train, method="rf", trControl=controlRF, ntree=100)
+modelRF
+
+predictRF <- predict(modelRF, test[, -length(names(test))])
+```
+
+
